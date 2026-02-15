@@ -1,0 +1,67 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+
+# ---- Folder containing your files ----
+folder_path = "/Users/edwinko/Year-2-Lab-Radioactivity/200_Second_File"
+
+# ---- List your filenames here (in distance order!) ----
+file_names = [
+    "task15_St_1cm_200cycles_high_resolution.txt",
+    "task15_St_2cm_200cycles_high_resolution.txt",
+    "task15_St_3cm_200cycles_high_resolution.txt",
+    "task15_St_5cm_200cycles_high_resolution.txt",
+    "task15_St_6cm_200cycles_high_resolution.txt",
+    "task15_St_7cm_200cycles_high_resolution.txt",
+    "task15_St_8cm_200cycles_high_resolution.txt"
+]
+
+# ---- Distances (cm → m) ----
+distances = np.array([1, 2, 3, 5, 6, 7, 8]) * 0.01
+
+# ---- Settings ----
+dt = 1
+window_size = int(200 / dt)
+
+# ---- Safety check ----
+if len(file_names) != len(distances):
+    raise ValueError("Number of files must match number of distances.")
+
+scaled_values = []
+valid_distances = []
+
+# ---- Process each file ----
+for name, dist in zip(file_names, distances):
+    file_path = os.path.join(folder_path, name)
+
+    if not os.path.exists(file_path):
+        print(f"Warning: {name} not found, skipping this file.")
+        continue
+
+    counts = np.loadtxt(file_path)
+
+    avg_counts = np.convolve(
+        counts,
+        np.ones(window_size) / window_size,
+        mode='valid'
+    )
+
+    mean_value = np.mean(avg_counts)
+    scaled_values.append(mean_value)
+    valid_distances.append(dist)
+
+# ---- Convert to numpy arrays ----
+scaled_values = np.array(scaled_values)
+valid_distances = np.array(valid_distances)
+
+# ---- Apply distance² scaling ----
+scaled_values = scaled_values * valid_distances**2
+
+# ---- Plot ----
+plt.figure()
+plt.scatter(valid_distances, scaled_values, color='blue')
+plt.xlabel("Distance (m)")
+plt.ylabel("distance² × avg count rate")
+plt.title("Scaled Average Count Rate vs Distance")
+plt.grid(True)
+plt.show()
