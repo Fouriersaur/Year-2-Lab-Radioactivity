@@ -2,11 +2,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-# ---- Folder containing your files ----
-folder_path = "/Users/edwinko/Year-2-Lab-Radioactivity/200_Second_File"
+# ---- Folder path ----
+folder = "/Users/edwinko/Year-2-Lab-Radioactivity/200Second_Source_2_Session_2"
 
-# ---- List your filenames here (in distance order!) ----
-file_names = [
+# ---- Files (in distance order) ----
+files = [
     "task15_St_1cm_200cycles_high_resolution.txt",
     "task15_St_2cm_200cycles_high_resolution.txt",
     "task15_St_3cm_200cycles_high_resolution.txt",
@@ -19,49 +19,69 @@ file_names = [
 # ---- Distances (cm → m) ----
 distances = np.array([1, 2, 3, 5, 6, 7, 8]) * 0.01
 
-# ---- Settings ----
-dt = 1
-window_size = int(200 / dt)
 
-# ---- Safety check ----
-if len(file_names) != len(distances):
-    raise ValueError("Number of files must match number of distances.")
+# ---- Poisson error function ----
+def calc_error(counts, distance):
+    """
+    Calculated using Uncertainty Propagation for the formula
+    """
+    sigma_d = 0.001  # distance measurement uncertainty (m)
+    total_counts = np.sum(counts)
+    T = len(counts)  # total time in seconds
+    u = total_counts * distance**2 * (1/T)  # mean count rate
+    rate_error = np.sqrt(1/total_counts + 4 * (sigma_d**2) * (1/distance**2)) * u
+
+    return rate_error
 
 scaled_values = []
-valid_distances = []
+errors = []
+valid_dist = []
 
-# ---- Process each file ----
-for name, dist in zip(file_names, distances):
-    file_path = os.path.join(folder_path, name)
+# ---- Process files ----
+for f, d in zip(files, distances):
 
-    if not os.path.exists(file_path):
-        print(f"Warning: {name} not found, skipping this file.")
+    path = os.path.join(folder, f)
+
+    if not os.path.exists(path):
+        print(f"Missing file: {f}")
         continue
 
-    counts = np.loadtxt(file_path)
+    counts = np.loadtxt(path)
 
-    avg_counts = np.convolve(
-        counts,
-        np.ones(window_size) / window_size,
-        mode='valid'
-    )
+    # Mean count rate
+    mean_rate = np.mean(counts)
 
-    mean_value = np.mean(avg_counts)
-    scaled_values.append(mean_value)
-    valid_distances.append(dist)
+    # Distance² scaled value
+    scaled_values.append(mean_rate * d**2)
 
-# ---- Convert to numpy arrays ----
+    # Poisson error
+    errors.append(calc_error(counts, d))
+
+    valid_dist.append(d)
+
+
+# ---- Convert to arrays ----
 scaled_values = np.array(scaled_values)
-valid_distances = np.array(valid_distances)
+errors = np.array(errors)
+valid_dist = np.array(valid_dist)
 
-# ---- Apply distance² scaling ----
-scaled_values = scaled_values * valid_distances**2
 
-# ---- Plot ----
+# ---- Plot (vertical error bars only) ----
 plt.figure()
-plt.scatter(valid_distances, scaled_values, color='blue')
+
+plt.errorbar(
+    x=valid_dist,
+    y=scaled_values,
+    yerr=np.abs(errors),
+    xerr=None,
+    fmt='o',
+    capsize=6,
+    elinewidth=1.5
+)
+
 plt.xlabel("Distance (m)")
-plt.ylabel("distance² × avg count rate")
-plt.title("Scaled Average Count Rate vs Distance")
+plt.ylabel("distance² × mean count rate")
+plt.title("Scaled Mean Count Rate vs Distance")
 plt.grid(True)
+
 plt.show()
