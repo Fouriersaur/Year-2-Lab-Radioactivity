@@ -2,42 +2,55 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-# ---- Folder path ----
-folder = "/Users/edwinko/Year-2-Lab-Radioactivity/200Second_Source_2_Session_2"
+# ======= Time interval per measurement bin (seconds) =======
+dt = 1.0   # <-- CHANGE THIS to your actual bin time
 
-# ---- Files (in distance order) ----
+# ======= Lab Session 3 - Count Rate vs Distance =======
+
+folder = "/Users/edwinko/Year-2-Lab-Radioactivity/100Second_Source_2_Session_3"
+
 files = [
-    "task15_St_1cm_200cycles_high_resolution.txt",
-    "task15_St_2cm_200cycles_high_resolution.txt",
-    "task15_St_3cm_200cycles_high_resolution.txt",
-    "task15_St_5cm_200cycles_high_resolution.txt",
-    "task15_St_6cm_200cycles_high_resolution.txt",
-    "task15_St_7cm_200cycles_high_resolution.txt",
-    "task15_St_8cm_200cycles_high_resolution.txt"
+    "task15_St_2cm_100cycles_s3.txt",
+    "task15_St_3cm_100cycles_s3.txt",
+    "task15_St_5cm_100cycles_s3.txt",
+    "task15_St_7cm_100cycles_s3.txt",
+    "task15_St_10cm_100cycles_s3.txt",
+    "task15_St_15cm_100cycles_s3.txt",
+    "task15_St_20cm_100cycles_s3.txt",
+    "task15_St_30cm_100cycles_s3.txt",
+    "task15_St_40cm_100cycles_s3.txt",
+    "task15_St_50cm_100cycles_s3.txt",
+    "task15_St_60cm_100cycles_s3.txt",
+    "task15_St_69cm_100cycles_s3_2.txt",
+    "task15_St_80cm_100cycles_s3.txt",
+    "task15_St_90cm_100cycles_s3_2.txt"
 ]
 
-# ---- Distances (cm → m) ----
-distances = np.array([1, 2, 3, 5, 6, 7, 8]) * 0.01
+distances = np.array([2, 3, 5, 7, 10, 15, 20, 30, 40, 50, 60, 69, 80, 90]) * 0.01
 
 
-# ---- Poisson error function ----
-def calc_error(counts, distance):
-    """
-    Calculated using Uncertainty Propagation for the formula
-    """
-    sigma_d = 0.001  # distance measurement uncertainty (m)
+# ======= Error function =======
+def calc_error(counts, distance, dt):
+    sigma_d = 0.001  # distance uncertainty (m)
+
     total_counts = np.sum(counts)
-    T = len(counts)  # total time in seconds
-    u = total_counts * distance**2 * (1/T)  # mean count rate
-    rate_error = np.sqrt(1/total_counts + 4 * (sigma_d**2) * (1/distance**2)) * u
+    total_time = len(counts) * dt
+
+    mean_rate = total_counts / total_time
+    scaled_value = mean_rate * distance**2
+
+    rate_error = scaled_value * np.sqrt(
+        1/total_counts + 4*(sigma_d**2)/(distance**2)
+    )
 
     return rate_error
+
 
 scaled_values = []
 errors = []
 valid_dist = []
 
-# ---- Process files ----
+# ======= Process files =======
 for f, d in zip(files, distances):
 
     path = os.path.join(folder, f)
@@ -48,40 +61,34 @@ for f, d in zip(files, distances):
 
     counts = np.loadtxt(path)
 
-    # Mean count rate
-    mean_rate = np.mean(counts)
+    # Mean count rate (counts per second)
+    total_counts = np.sum(counts)
+    total_time = len(counts) * dt
+    mean_rate = total_counts / total_time
 
-    # Distance² scaled value
     scaled_values.append(mean_rate * d**2)
-
-    # Poisson error
-    errors.append(calc_error(counts, d))
-
+    errors.append(calc_error(counts, d, dt))
     valid_dist.append(d)
 
 
-# ---- Convert to arrays ----
 scaled_values = np.array(scaled_values)
 errors = np.array(errors)
 valid_dist = np.array(valid_dist)
 
-
-# ---- Plot (vertical error bars only) ----
+# ======= Plot =======
 plt.figure()
 
 plt.errorbar(
     x=valid_dist,
     y=scaled_values,
     yerr=np.abs(errors),
-    xerr=None,
     fmt='o',
     capsize=6,
     elinewidth=1.5
 )
 
 plt.xlabel("Distance (m)")
-plt.ylabel("distance² × mean count rate")
+plt.ylabel("distance² × mean count rate (counts·m²/s)")
 plt.title("Scaled Mean Count Rate vs Distance")
-plt.grid(True)
 
 plt.show()
