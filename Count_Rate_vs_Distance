@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import os
 
 # ======= Time interval per measurement bin (seconds) =======
-dt = 1.0   # <-- CHANGE THIS to your actual bin time
+dt = 1.0   # CHANGE if needed
 
 # ======= Lab Session 3 - Count Rate vs Distance =======
 
@@ -26,6 +26,7 @@ files = [
     "task15_St_90cm_100cycles_s3_2.txt"
 ]
 
+# distances in meters
 distances = np.array([2, 3, 5, 7, 10, 15, 20, 30, 40, 50, 60, 69, 80, 90]) * 0.01
 
 
@@ -33,18 +34,17 @@ distances = np.array([2, 3, 5, 7, 10, 15, 20, 30, 40, 50, 60, 69, 80, 90]) * 0.0
 def calc_error(counts, distance, dt):
     sigma_d = 0.001  # distance uncertainty (m)
 
-    total_counts = np.sum(counts)
-    total_time = len(counts) * dt
+    # total counts and total time
+    n = np.sum(counts)
+    delta_t = len(counts) * dt
 
-    mean_rate = total_counts / total_time
-    scaled_value = mean_rate * distance**2
-
-    rate_error = scaled_value * np.sqrt(
-        1/total_counts + 4*(sigma_d**2)/(distance**2)
+    # propagated error
+    error = (1 / delta_t) * np.sqrt(
+        n * distance**4 +
+        4 * n**2 * distance**2 * sigma_d**2
     )
 
-    return rate_error
-
+    return error
 
 scaled_values = []
 errors = []
@@ -61,15 +61,16 @@ for f, d in zip(files, distances):
 
     counts = np.loadtxt(path)
 
-    # Mean count rate (counts per second)
-    total_counts = np.sum(counts)
-    total_time = len(counts) * dt
-    mean_rate = total_counts / total_time
+    # total counts and time
+    n = np.sum(counts) # total counts
+    delta_t = len(counts) * dt
 
-    scaled_values.append(mean_rate * d**2)
+    # scaled value Q = n*d^2 / delta_t
+    Q = n * d**2 / delta_t
+
+    scaled_values.append(Q)
     errors.append(calc_error(counts, d, dt))
     valid_dist.append(d)
-
 
 scaled_values = np.array(scaled_values)
 errors = np.array(errors)
@@ -87,8 +88,10 @@ plt.errorbar(
     elinewidth=1.5
 )
 
-plt.xlabel("Distance (m)")
-plt.ylabel("distance² × mean count rate (counts·m²/s)")
-plt.title("Scaled Mean Count Rate vs Distance")
+print()
 
+plt.xlabel("Distance (m)")
+plt.ylabel("d² × count rate (counts·m²/s)")
+plt.title("Scaled Mean Count Rate vs Distance")
+plt.grid(False)
 plt.show()

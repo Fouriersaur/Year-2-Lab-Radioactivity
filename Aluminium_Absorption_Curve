@@ -1,0 +1,57 @@
+# ==== Aluminium Absorption Curve with Maximum Beta Energy and Stopping Distance ====
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+
+# ==== Data ====
+t_mm = [0, 0.38, 0.47, 0.96, 1.40, 1.94, 2.43, 3.38, 3.89]  # thickness in mm
+t = np.array([x / 1000 for x in t_mm])  # convert mm -> m
+Count = np.array([1590, 930.32, 829.44, 405.52, 177.46, 66.47, 20.54, 1.42, 1.05])
+std_dev = np.array([40.46, 32.28, 30.03, 19.49, 14.83, 8.45, 5.01, 1.12, 0.95])
+
+# ==== Exponential Model ====
+def exp_model(x, A, k):
+    return A * np.exp(-k * x)
+
+# Fit the model
+params, _ = curve_fit(exp_model, t, Count)
+A_fit, k_fit = params
+
+t_fit = np.linspace(min(t), max(t), 200)
+Count_fit = exp_model(t_fit, A_fit, k_fit)
+
+# ==== Plot Data with logarithmic y-axis ====
+plt.errorbar(t, Count, yerr=std_dev, fmt='o', capsize=5, label="Data")
+plt.plot(t_fit, Count_fit, label="Exponential fit")
+plt.xlabel("Thickness (m)")
+plt.ylabel("Count rate (counts/s)")
+plt.title("Count against Thickness of Al Sheet")
+plt.yscale("log")  # logarithmic y-axis
+plt.legend()
+plt.grid(True, which="both", ls="--", alpha=0.5)
+
+print(f"Fitted parameters: A = {A_fit:.2f}, k = {k_fit:.2f}")
+
+# ==== Maximum Beta Energy Calculation ====
+background = 0.06
+idx = np.argmin(np.abs(Count_fit - background))
+t_max_m = t_fit[idx]
+t_max_mm = t_max_m * 1000
+print(f"Estimated maximum thickness (where counts ~ background) = {t_max_mm:.2f} mm")
+
+# Mass thickness in g/cm²
+density_Al = 2.7  # g/cm³
+R_max = t_max_mm / 10 * density_Al  # mm -> cm -> g/cm²
+print(f"Maximum range R_max ≈ {R_max:.2f} g/cm²")
+
+# Maximum beta energy in MeV
+E_max = 1.92 * np.sqrt(R_max**2 + 0.22 * R_max)
+print(f"Estimated maximum beta energy E_max ≈ {E_max:.2f} MeV")
+
+# Stopping distance in aluminium (meters)
+d_stop_cm = R_max / density_Al  # cm
+d_stop_m = d_stop_cm / 100  # m
+print(f"Corresponding stopping distance in Al ≈ {d_stop_m:.4f} m ({d_stop_cm:.2f} cm)")
+
+plt.show()

@@ -1,0 +1,133 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+from scipy.optimize import curve_fit
+
+# ======= Time interval per measurement bin (seconds) =======
+dt = 1.0   # CHANGE if needed
+
+# ======= Folder and files =======
+folder = "/Users/edwinko/Year-2-Lab-Radioactivity/100Second_Source_2_Session_3"
+
+files = [
+    "task15_St_2cm_100cycles_s3.txt",
+    "task15_St_3cm_100cycles_s3.txt",
+    "task15_St_5cm_100cycles_s3.txt",
+    "task15_St_7cm_100cycles_s3.txt",
+    "task15_St_10cm_100cycles_s3.txt",
+    "task15_St_15cm_100cycles_s3.txt",
+    "task15_St_20cm_100cycles_s3.txt",
+    "task15_St_30cm_100cycles_s3.txt",
+    "task15_St_40cm_100cycles_s3.txt",
+    "task15_St_50cm_100cycles_s3.txt",
+    "task15_St_60cm_100cycles_s3.txt",
+    "task15_St_69cm_100cycles_s3_2.txt",
+    "task15_St_80cm_100cycles_s3.txt",
+    "task15_St_90cm_100cycles_s3_2.txt"
+]
+
+# distances in meters
+distances = np.array([2, 3, 5, 7, 10, 15, 20, 30, 40, 50, 60, 69, 80, 90]) * 0.01
+
+# ======= Error function =======
+def calc_error(counts, distance, dt):
+    sigma_d = 0.001  # distance uncertainty (m)
+    n = np.sum(counts)        # total counts
+    delta_t = len(counts) * dt
+    # Propagated error for Q = n d^2 / dt
+    error = np.sqrt(n * distance**4 + 4 * n**2 * distance**2 * sigma_d**2) / delta_t
+    return error
+
+# ======= Process files and handle missing files =======
+scaled_values = []
+errors = []
+valid_dist = []
+
+for f, d in zip(files, distances):
+    path = os.path.join(folder, f)
+    if not os.path.exists(path):
+        print(f"Missing file: {f}")
+        continue
+    counts = np.loadtxt(path)
+    n = np.sum(counts)
+    delta_t = len(counts) * dt
+    Q = n * d**2 / delta_t  # scaled quantity
+    scaled_values.append(Q)
+    errors.append(calc_error(counts, d, dt))
+    valid_dist.append(d)
+
+scaled_values = np.array(scaled_values)
+errors = np.array(errors)
+valid_dist = np.array(valid_dist)
+
+# ======= Define Q(d) models =======
+# Short distances: circular source solid-angle
+def Q_circular(d, A, a):
+    return A * d**2 * (1 - d / np.sqrt(d**2 + a**2))
+
+# Long distances: point source with air attenuation
+def Q_point_attenuation(d, A, mu):
+    return A * np.exp(-mu * d)
+
+# ======= Split short and long distances =======
+cutoff = 0.15  # meters, adjust based on your data
+short_mask = valid_dist <= cutoff
+long_mask  = valid_dist > cutoff
+
+d_short = np.clip(valid_dist[short_mask], 0.005, None)  # avoid d=0
+R_short = scaled_values[short_mask]
+err_short = errors[short_mask]
+
+d_long = valid_dist[long_mask]
+R_long = scaled_values[long_mask]
+err_long = errors[long_mask]
+
+# ======= Fit short-distance data =======
+p0_short = [np.mean(R_short), 0.01]  # initial guesses: A, a
+popt_short, _ = curve_fit(
+    Q_circular,
+    d_short,
+    R_short,
+    sigma=err_short,
+    absolute_sigma=True,
+    p0=p0_short,
+    maxfev=5000
+)
+A_short, a_fit = popt_short
+print(f"Short-distance fit: A={A_short:.3e}, a={a_fit:.3e} m")
+
+# ======= Fit long-distance data =======
+p0_long = [np.mean(R_long), 0.01]  # initial guesses: A, mu
+popt_long, _ = curve_fit(
+    Q_point_attenuation,
+    d_long,
+    R_long,
+    sigma=err_long,
+    absolute_sigma=True,
+    p0=p0_long,
+    maxfev=5000
+)
+A_long, mu_fit = popt_long
+print(f"Long-distance fit: A={A_long:.3e}, mu={mu_fit:.3e} 1/m")
+
+# ======= Plot results =======
+d_fit = np.linspace(min(valid_dist), max(valid_dist), 500)
+R_fit_short = Q_circular(d_fit, *popt_short)
+R_fit_long = Q_point_attenuation(d_fit, *popt_long)
+
+plt.figure(figsize=(8,6))
+plt.errorbar(d_short, R_short, yerr=err_short, fmt='o', capsize=6, elinewidth=1.5, label="Short-distance data")
+plt.errorbar(d_long, R_long, yerr=err_long, fmt='o', capsize=6, elinewidth=1.5, label="Long-distance data")
+plt.plot(d_fit, R_fit_short, 'r--', label="Circular source fit (short d)")
+plt.plot(d_fit, R_fit_long, 'g-', label="Point source + air attenuation (long d)")
+
+plt.xlabel("Distance (m)")
+plt.ylabel(r"$n d^2 / \Delta t$ (counts·m²/s)")
+plt.title("Scaled Count Rate vs Distance (Fitted with small and large distances)")
+plt.legend()
+plt.grid(False)
+
+# ======= Cap y-axis =======
+plt.ylim(0, np.max(scaled_values)*1.2)
+
+plt.show()

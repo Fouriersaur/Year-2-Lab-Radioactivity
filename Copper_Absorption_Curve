@@ -1,0 +1,68 @@
+# ==== Copper Absorption Curve ==== 
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+
+# Example data (thickness in mm)
+t_mm = [0.48, 0.96, 0.056, 0.25, 0.53, 1.04, 0.34, 0.16, 0.67, 0.82, 0.74]
+
+# Convert mm → m
+t = np.array([x / 1000 for x in t_mm])
+
+Count = np.array([63.36, 0.96, 928.85, 312.88, 30.79, 0.67, 124.22, 539.48, 14.82, 2.67, 6.46])
+
+# Standard deviation for each y value
+std_dev = np.array([8.31, 0.95, 28.6, 18.88, 5.7, 0.83, 11.71, 25.23, 3.8, 1.73, 2.74])
+
+# Exponential model: C = A * exp(-k t)
+def exp_model(x, A, k):
+    return A * np.exp(-k * x)
+
+# Fit the model to the data
+params, _ = curve_fit(exp_model, t, Count)
+A_fit, k_fit = params
+
+# Smooth curve for fitted line
+t_fit = np.linspace(min(t), max(t), 200)
+Count_fit = exp_model(t_fit, A_fit, k_fit)
+
+# Plot points with error bars
+plt.errorbar(t, Count, yerr=std_dev, fmt='o', capsize=5, label="Data")
+
+# Plot exponential fit
+plt.plot(t_fit, Count_fit, label="Exponential fit")
+
+# Labels and title
+plt.xlabel("Thickness (m)")
+plt.ylabel("Mean Count values")
+plt.title("Count against Thickness of Copper Sheet")
+plt.legend()
+
+# Print fitted parameters
+print(f"A = {A_fit:.2f}")
+print(f"k = {k_fit:.2f}")
+
+# ==== Maximum Beta Energy Calculation ====
+background = 0.06
+idx = np.argmin(np.abs(Count_fit - background))
+t_max_m = t_fit[idx]
+t_max_mm = t_max_m * 1000
+print(f"Estimated maximum thickness (where counts ~ background) = {t_max_mm:.2f} mm")
+
+# Mass thickness in g/cm²
+density_Cu = 8.96  # g/cm³
+R_max = t_max_mm / 10 * density_Cu  # mm -> cm -> g/cm²
+print(f"Maximum range R_max ≈ {R_max:.2f} g/cm²")
+
+# Maximum beta energy in MeV
+E_max = 1.92 * np.sqrt(R_max**2 + 0.22 * R_max)
+print(f"Estimated maximum beta energy E_max ≈ {E_max:.2f} MeV")
+
+# Stopping distance in aluminium (actual thickness in meters)
+d_stop_cm = R_max / density_Cu  # cm
+d_stop_m = d_stop_cm / 100  # m
+print(f"Corresponding stopping distance in Al ≈ {d_stop_m:.4f} m ({d_stop_cm:.2f} cm)")
+
+# Show the graph
+plt.show()
