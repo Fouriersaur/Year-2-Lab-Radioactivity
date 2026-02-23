@@ -10,46 +10,63 @@ t = np.array([x / 1000 for x in t_mm])  # convert mm -> m
 Count = np.array([1590, 930.32, 829.44, 405.52, 177.46, 66.47, 20.54, 1.42, 1.05])
 std_dev = np.array([40.46, 32.28, 30.03, 19.49, 14.83, 8.45, 5.01, 1.12, 0.95])
 
-# ==== Exponential Model ====
-def exp_model(x, A, k):
-    return A * np.exp(-k * x)
+# ==== Exclude last two low-count points ====
+t_fit_data = t[:-2]
+Count_fit_data = Count[:-2]
+std_dev_fit_data = std_dev[:-2]
 
-# Fit the model
-params, _ = curve_fit(exp_model, t, Count)
-A_fit, k_fit = params
+# ==== Modified Beta Absorption Model ====
+def beta_model(x, A, mu, x0, alpha, B):
+    """
+    A * exp(-mu * x) * logistic_cutoff + B
+    Logistic cutoff models rapid fall near maximum range
+    """
+    cutoff = 1 / (1 + np.exp(alpha * (x - x0)))
+    return A * np.exp(-mu * x) * cutoff + B
 
-t_fit = np.linspace(min(t), max(t), 200)
-Count_fit = exp_model(t_fit, A_fit, k_fit)
+# ==== Initial guesses for fitting ====
+# A ~ initial count, mu ~ small thickness attenuation, x0 ~ stopping thickness, alpha ~ sharpness, B ~ background
+p0 = [1500, 800, 0.003, 5000, 0.06]
 
-# ==== Plot Data with logarithmic y-axis ====
+# ==== Fit the model (excluding last two points) ====
+params, _ = curve_fit(beta_model, t_fit_data, Count_fit_data, p0=p0, sigma=std_dev_fit_data, absolute_sigma=True, maxfev=20000)
+A_fit, mu_fit, x0_fit, alpha_fit, B_fit = params
+
+print(f"Fitted parameters:\nA = {A_fit:.2f}, mu = {mu_fit:.2f}, x0 = {x0_fit:.4f} m, alpha = {alpha_fit:.2f}, B = {B_fit:.2f}")
+
+# ==== Create smooth fit curve for plotting ====
+t_plot = np.linspace(0, max(t)*1.1, 300)
+Count_plot = beta_model(t_plot, *params)
+
+# ==== Plot data and fit on log scale ====
+plt.figure(figsize=(8,6))
 plt.errorbar(t, Count, yerr=std_dev, fmt='o', capsize=5, label="Data")
-plt.plot(t_fit, Count_fit, label="Exponential fit")
-plt.xlabel("Thickness (m)")
-plt.ylabel("Count rate (counts/s)")
-plt.title("Count against Thickness of Al Sheet")
-plt.yscale("log")  # logarithmic y-axis
+plt.plot(t_plot, Count_plot, 'r-', label="Modified Beta Fit (excluding last 2 points)")
+plt.xlabel("Aluminium Thickness (m)")
+plt.ylabel("Count Rate (counts/s)")
+plt.title("Beta Absorption in Aluminium with Smooth Cutoff")
+plt.yscale("log")
 plt.legend()
 plt.grid(True, which="both", ls="--", alpha=0.5)
 
-print(f"Fitted parameters: A = {A_fit:.2f}, k = {k_fit:.2f}")
-
-# ==== Maximum Beta Energy Calculation ====
-background = 0.06
-idx = np.argmin(np.abs(Count_fit - background))
-t_max_m = t_fit[idx]
+# ==== Estimate Maximum Thickness from fit ====
+# Find index where Count_plot is closest to fitted background
+idx = np.argmin(np.abs(Count_plot - B_fit))
+t_max_m = t_plot[idx]
 t_max_mm = t_max_m * 1000
 print(f"Estimated maximum thickness (where counts ~ background) = {t_max_mm:.2f} mm")
 
-# Mass thickness in g/cm²
+# ==== Maximum Range in g/cm² ====
 density_Al = 2.7  # g/cm³
-R_max = t_max_mm / 10 * density_Al  # mm -> cm -> g/cm²
+R_max = t_max_mm / 10 * density_Al  # convert mm -> cm and multiply by density
 print(f"Maximum range R_max ≈ {R_max:.2f} g/cm²")
 
-# Maximum beta energy in MeV
-E_max = 1.92 * np.sqrt(R_max**2 + 0.22 * R_max)
+# ==== Maximum Beta Energy (MeV) ====
+# E_max = 1.92 * np.sqrt(R_max**2 + 0.22 * R_max)
+E_max = np.sqrt(((R_max/0.11 + 1)**2 - 1) / 22.4)
 print(f"Estimated maximum beta energy E_max ≈ {E_max:.2f} MeV")
 
-# Stopping distance in aluminium (meters)
+# ==== Stopping distance in aluminium (meters) ====
 d_stop_cm = R_max / density_Al  # cm
 d_stop_m = d_stop_cm / 100  # m
 print(f"Corresponding stopping distance in Al ≈ {d_stop_m:.4f} m ({d_stop_cm:.2f} cm)")

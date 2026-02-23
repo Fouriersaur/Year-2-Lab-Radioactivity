@@ -2,9 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from scipy.optimize import curve_fit
+from scipy.stats import chi2
 
 # ======= Time interval per measurement bin (seconds) =======
-dt = 1.0   # CHANGE if needed
+dt = 1.0
 
 # ======= Folder and files =======
 folder = "/Users/edwinko/Year-2-Lab-Radioactivity/100Second_Source_2_Session_3"
@@ -23,22 +24,20 @@ files = [
     "task15_St_60cm_100cycles_s3.txt",
     "task15_St_69cm_100cycles_s3_2.txt",
     "task15_St_80cm_100cycles_s3.txt",
-    "task15_St_90cm_100cycles_s3_2.txt"
+    "task15_St_90cm_100cycles_s3.txt"
 ]
 
 # distances in meters
-distances = np.array([2, 3, 5, 7, 10, 15, 20, 30, 40, 50, 60, 69, 80, 90]) * 0.01
+distances = np.array([2,3,5,7,10,15,20,30,40,50,60,69,80,90]) * 0.01
 
 # ======= Error function =======
 def calc_error(counts, distance, dt):
-    sigma_d = 0.001  # distance uncertainty (m)
-    n = np.sum(counts)        # total counts
+    sigma_d = 0.001
+    n = np.sum(counts)
     delta_t = len(counts) * dt
-    # Propagated error for Q = n d^2 / dt
-    error = np.sqrt(n * distance**4 + 4 * n**2 * distance**2 * sigma_d**2) / delta_t
-    return error
+    return np.sqrt(n*distance**4 + 4*n**2*distance**2*sigma_d**2) / delta_t
 
-# ======= Process files and handle missing files =======
+# ======= Load data =======
 scaled_values = []
 errors = []
 valid_dist = []
@@ -51,7 +50,7 @@ for f, d in zip(files, distances):
     counts = np.loadtxt(path)
     n = np.sum(counts)
     delta_t = len(counts) * dt
-    Q = n * d**2 / delta_t  # scaled quantity
+    Q = n * d**2 / delta_t
     scaled_values.append(Q)
     errors.append(calc_error(counts, d, dt))
     valid_dist.append(d)
@@ -60,74 +59,54 @@ scaled_values = np.array(scaled_values)
 errors = np.array(errors)
 valid_dist = np.array(valid_dist)
 
-# ======= Define Q(d) models =======
-# Short distances: circular source solid-angle
-def Q_circular(d, A, a):
-    return A * d**2 * (1 - d / np.sqrt(d**2 + a**2))
+# ======= Combined model (geometry × attenuation) =======
+def Q_combined(d, A, a, mu):
+    return A * d**2 * (1 - d/np.sqrt(d**2 + a**2)) * np.exp(-mu*d)
 
-# Long distances: point source with air attenuation
-def Q_point_attenuation(d, A, mu):
-    return A * np.exp(-mu * d)
-
-# ======= Split short and long distances =======
-cutoff = 0.15  # meters, adjust based on your data
-short_mask = valid_dist <= cutoff
-long_mask  = valid_dist > cutoff
-
-d_short = np.clip(valid_dist[short_mask], 0.005, None)  # avoid d=0
-R_short = scaled_values[short_mask]
-err_short = errors[short_mask]
-
-d_long = valid_dist[long_mask]
-R_long = scaled_values[long_mask]
-err_long = errors[long_mask]
-
-# ======= Fit short-distance data =======
-p0_short = [np.mean(R_short), 0.01]  # initial guesses: A, a
-popt_short, _ = curve_fit(
-    Q_circular,
-    d_short,
-    R_short,
-    sigma=err_short,
-    absolute_sigma=True,
-    p0=p0_short,
-    maxfev=5000
+# ======= Fit combined model =======
+p0 = [np.mean(scaled_values), 0.01, 0.01]
+popt_comb, pcov_comb = curve_fit(
+    Q_combined, valid_dist, scaled_values, sigma=errors, absolute_sigma=True, p0=p0, maxfev=10000
 )
-A_short, a_fit = popt_short
-print(f"Short-distance fit: A={A_short:.3e}, a={a_fit:.3e} m")
+A_fit, a_fit, mu_fit = popt_comb
 
-# ======= Fit long-distance data =======
-p0_long = [np.mean(R_long), 0.01]  # initial guesses: A, mu
-popt_long, _ = curve_fit(
-    Q_point_attenuation,
-    d_long,
-    R_long,
-    sigma=err_long,
-    absolute_sigma=True,
-    p0=p0_long,
-    maxfev=5000
+# ======= Horizontal (constant) model =======
+def Q_constant(d, C):
+    return C
+
+popt_const, _ = curve_fit(
+    Q_constant, valid_dist, scaled_values, sigma=errors, absolute_sigma=True
 )
-A_long, mu_fit = popt_long
-print(f"Long-distance fit: A={A_long:.3e}, mu={mu_fit:.3e} 1/m")
+C_fit = popt_const[0]
 
-# ======= Plot results =======
+# ======= Compute chi-squared and p-values =======
+# Combined model
+res_comb = (scaled_values - Q_combined(valid_dist, *popt_comb)) / errors
+chi2_comb = np.sum(res_comb**2)
+dof_comb = len(valid_dist) - len(popt_comb)
+p_comb = 1 - chi2.cdf(chi2_comb, dof_comb)
+
+# Constant model
+res_const = (scaled_values - Q_constant(valid_dist, C_fit)) / errors
+chi2_const = np.sum(res_const**2)
+dof_const = len(valid_dist) - 1
+p_const = 1 - chi2.cdf(chi2_const, dof_const)
+
+print("===== Fit Comparison =====")
+print(f"Combined model: χ² = {chi2_comb:.2f}, dof = {dof_comb}, p = {p_comb:.4f}")
+print(f"Constant model: χ² = {chi2_const:.2f}, dof = {dof_const}, p = {p_const:.4f}")
+
+# ======= Plot =======
 d_fit = np.linspace(min(valid_dist), max(valid_dist), 500)
-R_fit_short = Q_circular(d_fit, *popt_short)
-R_fit_long = Q_point_attenuation(d_fit, *popt_long)
-
 plt.figure(figsize=(8,6))
-plt.errorbar(d_short, R_short, yerr=err_short, fmt='o', capsize=6, elinewidth=1.5, label="Short-distance data")
-plt.errorbar(d_long, R_long, yerr=err_long, fmt='o', capsize=6, elinewidth=1.5, label="Long-distance data")
-plt.plot(d_fit, R_fit_short, 'r--', label="Circular source fit (short d)")
-plt.plot(d_fit, R_fit_long, 'g-', label="Point source + air attenuation (long d)")
+plt.errorbar(valid_dist, scaled_values, yerr=errors, fmt='o', capsize=6, elinewidth=1.5, label="Data")
+plt.plot(d_fit, Q_combined(d_fit, *popt_comb), 'r-', label="Combined model fit")
+plt.plot(d_fit, np.full_like(d_fit, C_fit), 'g--', label="Horizontal fit")
 
 plt.xlabel("Distance (m)")
 plt.ylabel(r"$n d^2 / \Delta t$ (counts·m²/s)")
-plt.title("Scaled Count Rate vs Distance (Fitted with small and large distances)")
+plt.title("Combined vs Horizontal Model Fit")
 plt.legend()
 plt.grid(False)
-
-# ======= Cap y-axis =======
 plt.ylim(0, np.max(scaled_values)*1.2)
-
 plt.show()

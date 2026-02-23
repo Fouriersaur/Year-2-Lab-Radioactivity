@@ -88,8 +88,6 @@ plt.errorbar(
     elinewidth=1.5
 )
 
-print()
-
 plt.xlabel("Distance (m)")
 plt.ylabel("d² × count rate (counts·m²/s)")
 plt.title("Scaled Mean Count Rate vs Distance")
