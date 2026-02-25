@@ -1,0 +1,150 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+from scipy.optimize import curve_fit
+from scipy.stats import chi2
+
+# ======= Folder and files =======
+folder = "/Users/edwinko/Year-2-Lab-Radioactivity/Vary_Seconds_Source_4_Session_5"
+
+files = [
+    "task18_St_1cm_70cycles",
+    "task18_St_2cm_70cycles",
+    "task18_St_3cm_70cycles",
+    "task18_St_4cm_70cycles",
+    "task18_St_5cm_70cycles",
+    "task18_St_7cm_90cycles",
+    "task18_St_10cm_130cycles",
+    "task18_St_15cm_150cycles",
+    "task18_St_25cm_220cycles",
+    "task18_St_35cm_320cycles",
+    "task18_St_40cm_340cycles",
+    "task18_St_45cm_470cycles",
+    "task18_St_50cm_420cycles",
+    "task18_St_55cm_470cycles",
+    "task18_St_60cm_490cycles",
+    "task18_St_65cm_530cycles",
+    "task18_St_70cm_560cycles",
+    "task18_St_75cm_600cycles",
+    "task18_St_80cm_630cycles",
+    "task18_St_85cm_300cycles",
+    "task18_St_90cm_700cycles",
+]
+
+# distances in meters (ordered to match `files`)
+distances = np.array([
+    1, 2, 3, 4, 5, 7, 10, 15, 25, 35, 40,
+    45, 50, 55, 60, 65, 70, 75, 80, 85, 90
+]) * 0.01
+
+# ======= Total recording time for each file (seconds) =======
+# extracted from the filename suffix (e.g. 70cycles -> 70 s)
+recording_times = np.array([
+    70, 70, 70, 70, 70, 90, 130, 150, 220,
+    320, 340, 470, 420, 470, 490, 530, 560,
+    600, 630, 300, 700
+])
+
+# ======= Error function (updated for variable time) =======
+def calc_error(counts, distance, delta_t):
+    sigma_d = 0.001  # distance uncertainty (m)
+    n = np.sum(counts)
+    return np.sqrt(n*distance**4 + 4*n**2*distance**2*sigma_d**2) / delta_t
+
+# ======= Load data =======
+scaled_values = []
+errors = []
+valid_dist = []
+
+for f, d, T in zip(files, distances, recording_times):
+    path = os.path.join(folder, f)
+
+    if not os.path.exists(path):
+        print(f"Missing file: {f}")
+        continue
+
+    counts = np.loadtxt(path)
+    n = np.sum(counts)
+    delta_t = T  # <-- use actual recording time
+
+    Q = n * d**2 / delta_t
+
+    scaled_values.append(Q)
+    errors.append(calc_error(counts, d, delta_t))
+    valid_dist.append(d)
+
+scaled_values = np.array(scaled_values)
+errors = np.array(errors)
+valid_dist = np.array(valid_dist)
+
+# ======= Combined model (geometry × attenuation) =======
+def Q_combined(d, A, a, mu):
+    return A * d**2 * (1 - d/np.sqrt(d**2 + a**2)) * np.exp(-mu*d)
+
+# ======= Fit combined model =======
+p0 = [np.mean(scaled_values), 0.01, 0.01]
+
+popt_comb, pcov_comb = curve_fit(
+    Q_combined,
+    valid_dist,
+    scaled_values,
+    sigma=errors,
+    absolute_sigma=True,
+    p0=p0,
+    maxfev=10000
+)
+
+A_fit, a_fit, mu_fit = popt_comb
+
+# ======= Horizontal (constant) model =======
+def Q_constant(d, C):
+    return C
+
+popt_const, _ = curve_fit(
+    Q_constant,
+    valid_dist,
+    scaled_values,
+    sigma=errors,
+    absolute_sigma=True
+)
+
+C_fit = popt_const[0]
+
+# ======= Compute chi-squared and p-values =======
+
+# Combined model
+res_comb = (scaled_values - Q_combined(valid_dist, *popt_comb)) / errors
+chi2_comb = np.sum(res_comb**2)
+dof_comb = len(valid_dist) - len(popt_comb)
+p_comb = 1 - chi2.cdf(chi2_comb, dof_comb)
+
+# Constant model
+res_const = (scaled_values - Q_constant(valid_dist, C_fit)) / errors
+chi2_const = np.sum(res_const**2)
+dof_const = len(valid_dist) - 1
+p_const = 1 - chi2.cdf(chi2_const, dof_const)
+
+print("===== Fit Comparison =====")
+print(f"Combined model: χ² = {chi2_comb:.2f}, dof = {dof_comb}, p = {p_comb:.4f}")
+print(f"Constant model: χ² = {chi2_const:.2f}, dof = {dof_const}, p = {p_const:.4f}")
+
+# ======= Plot =======
+d_fit = np.linspace(min(valid_dist), max(valid_dist), 500)
+
+plt.figure(figsize=(8,6))
+plt.errorbar(valid_dist, scaled_values, yerr=errors,
+             fmt='o', capsize=6, elinewidth=1.5, label="Data")
+
+plt.plot(d_fit, Q_combined(d_fit, *popt_comb),
+         'r-', label="Combined model fit")
+
+plt.plot(d_fit, np.full_like(d_fit, C_fit),
+         'g--', label="Horizontal fit")
+
+plt.xlabel("Distance (m)")
+plt.ylabel(r"$n d^2 / \Delta t$ (counts·m²/s)")
+plt.title("Combined vs Horizontal Model Fit")
+plt.legend()
+plt.grid(False)
+plt.ylim(0, np.max(scaled_values)*1.2)
+plt.show()
