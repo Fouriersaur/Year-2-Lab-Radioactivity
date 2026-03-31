@@ -1,0 +1,146 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+from scipy.optimize import curve_fit
+
+# ==== Folder and files ====
+folder = "/Users/edwinko/Year-2-Lab-Radioactivity/Absorption_Source_4_Session 6"
+files = [
+    "task18_St_28mm_26Al (1)",
+    "task18_St_28mm_45Al (1)",
+    "task18_St_28mm_76Al (1)",
+    "task18_St_28mm_90Al (1)",
+    "task18_St_28mm_123Al (1)",
+    "task18_St_28mm_141Al (1)",
+    "task_18_St_28mm_161Al (1)",
+    "task18_St_28mm_186 (1)",
+    "task18_St_28mm_238Al (1)",
+    "task18_St_28mm_287Al (1)",
+    "task18_St_28mm_336Al",
+    "task18_St_28mm_384Al",
+    "task18_St_28mm_434Al",
+    "task18_St_28mm_482Al",
+    "task18_St_28mm_497Al",
+    "task18_St_28mm_737Al"
+]
+
+# Thickness values (mm → m)
+thickness_mm = [26, 45, 76, 90, 123, 141, 161, 186,
+                238, 287, 336, 384, 434, 482, 497, 737]
+thickness = np.array(thickness_mm) / 1000  # convert to meters
+
+# ==== Load counts ====
+counts = []
+errors = []
+x_vals = []
+
+for f, x in zip(files, thickness):
+    path = os.path.join(folder, f)
+    if not os.path.exists(path):
+        print(f"Missing file: {f}")
+        continue
+
+    data = np.loadtxt(path)
+
+    N = np.sum(data)
+    T = len(data)
+
+    R = N / T
+    sigma_R = np.sqrt(N) / T
+
+    counts.append(R)
+    errors.append(sigma_R)
+    x_vals.append(x)
+
+counts = np.array(counts)
+errors = np.array(errors)
+x_vals = np.array(x_vals)
+
+# Remove zero-count points
+mask = counts > 0
+x_fit = x_vals[mask]
+counts_fit = counts[mask]
+errors_fit = errors[mask]
+
+# ============================================================
+# 1️⃣ Log-linear fit on FIRST HALF of data
+# ============================================================
+ln_counts = np.log(counts_fit)
+
+# Slice first half
+half_index = len(x_fit) // 2
+x_half = x_fit[:half_index]
+ln_counts_half = ln_counts[:half_index]
+
+# Fit log-linear to first half
+m_half, c_half = np.polyfit(x_half, ln_counts_half, 1)
+
+mu_log_half = -m_half
+A_log_half = np.exp(c_half)
+
+print("Log-linear fit (first half of data):")
+print(f"μ = {mu_log_half:.3f} m⁻¹")
+print(f"A = {A_log_half:.3f} counts/s")
+
+# ============================================================
+# 2️⃣ Exponential fit (raw data, all non-zero points)
+# ============================================================
+def exponential(x, A, mu):
+    return A * np.exp(-mu * x)
+
+popt, pcov = curve_fit(
+    exponential,
+    x_fit,
+    counts_fit,
+    sigma=errors_fit,
+    absolute_sigma=True,
+    p0=[A_log_half, mu_log_half]  # use first-half fit as initial guess
+)
+
+A_exp, mu_exp = popt
+A_exp_err, mu_exp_err = np.sqrt(np.diag(pcov))
+
+print("\nExponential fit (all data):")
+print(f"μ = {mu_exp:.3f} ± {mu_exp_err:.3f} m⁻¹")
+print(f"A = {A_exp:.3f} ± {A_exp_err:.3f} counts/s")
+
+# ============================================================
+# Generate smooth curves
+# ============================================================
+x_plot = np.linspace(min(x_fit), max(x_fit), 400)
+ln_fit_line_half = m_half * x_plot + c_half
+counts_exp_fit = exponential(x_plot, A_exp, mu_exp)
+
+# ============================================================
+# Subplots
+# ============================================================
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(6, 8))
+
+# ---- Top: Log plot ----
+ax1.errorbar(
+    x_fit, ln_counts,
+    yerr=errors_fit / counts_fit,
+    fmt='o', capsize=5, label="ln(Data)"
+)
+ax1.plot(x_plot, ln_fit_line_half, 'r-', label="First-half fit")
+ax1.set_xlabel("Aluminium Thickness (m)")
+ax1.set_ylabel("ln(Count Rate)")
+ax1.set_title("Log Plot with First-Half Fit")
+ax1.grid(True)
+ax1.legend()
+
+# ---- Bottom: Raw data ----
+ax2.errorbar(
+    x_fit, counts_fit,
+    yerr=errors_fit,
+    fmt='o', capsize=5, label="Data"
+)
+ax2.plot(x_plot, counts_exp_fit, 'r-', label="Exponential fit")
+ax2.set_xlabel("Aluminium Thickness (m)")
+ax2.set_ylabel("Count Rate (counts/s)")
+ax2.set_title("Raw Data with Exponential Fit")
+ax2.grid(True)
+ax2.legend()
+
+plt.tight_layout()
+plt.show()

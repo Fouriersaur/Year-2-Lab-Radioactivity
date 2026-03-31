@@ -1,0 +1,190 @@
+import numpy as np
+
+def calculate_geometric_efficiency(source_radius, detector_half_width, detector_half_height, distance, n_samples=1000000):
+    """
+    Calculate the geometric efficiency (fraction of particles detected) for a circular source
+    and a square detector using Monte Carlo integration.
+    
+    Parameters:
+    -----------
+    source_radius : float
+        Radius of the circular source (m)
+    detector_half_width : float
+        Half-width of the square detector (m)
+    detector_half_height : float
+        Half-height of the square detector (m)
+    distance : float
+        Distance between source and detector planes (m)
+    n_samples : int
+        Number of Monte Carlo samples for integration
+    
+    Returns:
+    --------
+    efficiency : float
+        Fraction of emitted particles that hit the detector (0 to 1)
+    """
+    
+    # Monte Carlo integration over the source area
+    # Sample random points uniformly within the circular source
+    angles = np.random.uniform(0, 2*np.pi, n_samples)
+    radii = source_radius * np.sqrt(np.random.uniform(0, 1, n_samples))
+    
+    source_x = radii * np.cos(angles)
+    source_y = radii * np.sin(angles)
+    
+    # For each source point, sample isotropic emission direction in upper hemisphere
+    # Using spherical coordinates: theta (polar), phi (azimuthal)
+    cos_theta = np.random.uniform(0, 1, n_samples)  # cos(theta) uniform for isotropic
+    phi = np.random.uniform(0, 2*np.pi, n_samples)
+    
+    sin_theta = np.sqrt(1 - cos_theta**2)
+    
+    # Direction vector
+    dx = sin_theta * np.cos(phi)
+    dy = sin_theta * np.sin(phi)
+    dz = cos_theta
+    
+    # Calculate where particle hits the detector plane at z = distance
+    # Parametric line: (x,y,z) = (source_x, source_y, 0) + t*(dx, dy, dz)
+    # At detector plane: z = distance, so t = distance/dz
+    t = distance / dz
+    
+    hit_x = source_x + t * dx
+    hit_y = source_y + t * dy
+    
+    # Check if hit point is within the square detector
+    hits_detector = (np.abs(hit_x) <= detector_half_width) & (np.abs(hit_y) <= detector_half_height)
+    
+    # Geometric efficiency is fraction of particles that hit detector
+    efficiency = np.sum(hits_detector) / n_samples
+    
+    # Statistical uncertainty (standard error)
+    uncertainty = np.sqrt(efficiency * (1 - efficiency) / n_samples)
+    
+    return efficiency, uncertainty
+
+
+def geometric_efficiency_vs_distance_variable_time(source_radius, detector_half_width, detector_half_height, 
+                                     distances, base_n_samples=1000000):
+    """
+    Calculate geometric efficiency as a function of distance with measurement time 
+    (number of samples) scaling as distance² to maintain consistent statistical uncertainty.
+    
+    Parameters:
+    -----------
+    source_radius : float
+        Radius of the circular source (m)
+    detector_half_width : float
+        Half-width of the square detector (m)
+    detector_half_height : float
+        Half-height of the square detector (m)
+    distances : array
+        Array of distances to calculate efficiency at (m)
+    base_n_samples : int
+        Number of Monte Carlo samples at the reference distance
+    reference_distance : float
+        Reference distance (m) where base_n_samples is used
+    
+    Returns:
+    --------
+    efficiencies : array
+        Geometric efficiency at each distance
+    uncertainties : array
+        Statistical uncertainties
+    n_samples_used : array
+        Number of samples used at each distance
+    """
+    
+    efficiencies = []
+    uncertainties = []
+    n_samples_used = []
+    reference_distance = distances[0]
+    for d in distances:
+        # Scale number of samples (representing measurement time) with distance²
+        # This mimics increasing measurement time in real experiment
+        n_samples = int(base_n_samples * (d / reference_distance)**2)
+        n_samples = max(n_samples, 500000)  # Ensure minimum samples
+        
+        eff, unc = calculate_geometric_efficiency(source_radius, detector_half_width, 
+                                                   detector_half_height, d, n_samples)
+        efficiencies.append(eff)
+        uncertainties.append(unc)
+        n_samples_used.append(n_samples)
+        print(f"Distance: {d:.3f} m, Samples: {n_samples}, Efficiency: {eff:.6f} ± {unc:.6f}")
+    
+    return np.array(efficiencies), np.array(uncertainties), np.array(n_samples_used)
+
+
+def geometric_efficiency_vs_distance(source_radius, detector_half_width, detector_half_height, 
+                                     distances, n_samples=1000000):
+    """
+    Calculate geometric efficiency as a function of distance.
+    
+    Parameters:
+    -----------
+    source_radius : float
+        Radius of the circular source (m)
+    detector_half_width : float
+        Half-width of the square detector (m)
+    detector_half_height : float
+        Half-height of the square detector (m)
+    distances : array
+        Array of distances to calculate efficiency at (m)
+    n_samples : int
+        Number of Monte Carlo samples for integration
+    
+    Returns:
+    --------
+    efficiencies : array
+        Geometric efficiency at each distance
+    uncertainties : array
+        Statistical uncertainties
+    """
+    
+    efficiencies = []
+    uncertainties = []
+    
+    for d in distances:
+        eff, unc = calculate_geometric_efficiency(source_radius, detector_half_width, 
+                                                   detector_half_height, d, n_samples)
+        efficiencies.append(eff)
+        uncertainties.append(unc)
+        print(f"Distance: {d:.3f} m, Efficiency: {eff:.6f} ± {unc:.6f}")
+    
+    return np.array(efficiencies), np.array(uncertainties)
+
+
+# Define geometry
+source_radius = 0.8 / 2 / 100  # 1.1 cm diameter source -> radius in meters
+detector_half_width = 5.0 / 100  # 10 cm x 10 cm detector -> 5 cm half-width in meters
+detector_half_height = 5.0 / 100
+
+# Calculate vs distance
+print(f"\n=== Efficiency vs Distance (Variable Time) ===")
+distances = np.linspace(0.01, 0.9, 50)
+distances = distances[::-1]  # Reverse distances
+
+# Use the variable time function where samples scale with d²
+efficiencies, uncertainties, n_samples_used = geometric_efficiency_vs_distance_variable_time(
+    source_radius, detector_half_width, detector_half_height, distances, 
+    base_n_samples=100000000
+)
+
+# Save data to npz file with min/max distance and number of steps in filename
+min_dist_cm = distances.min() * 100
+max_dist_cm = distances.max() * 100
+n_steps = len(distances)
+output_file = f'Data/test_montecarlo_efficiency_{min_dist_cm:.1f}cm_{max_dist_cm:.1f}cm_{n_steps}steps.npz'
+
+np.savez(output_file, 
+         distances=distances,
+         efficiencies=efficiencies,
+         uncertainties=uncertainties,
+         n_samples_used=n_samples_used,
+         source_radius=source_radius,
+         detector_half_width=detector_half_width,
+         detector_half_height=detector_half_height)
+
+print(f"\nData saved to {output_file}")
+print(f"Saved arrays: distances, efficiencies, uncertainties, n_samples_used")
+print(f"Saved parameters: source_radius, detector_half_width, detector_half_height")

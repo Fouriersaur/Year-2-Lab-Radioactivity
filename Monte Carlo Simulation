@@ -1,0 +1,139 @@
+import numpy as np
+
+def monte_carlo_efficiency_geo_atten(source_radius, detector_half_width, detector_half_height,
+                                     distance, mu=0.0, n_samples=1000000):
+    """
+    Monte Carlo calculation of combined geometric + attenuation efficiency.
+
+    Parameters
+    ----------
+    source_radius : float
+        Radius of circular source (m)
+    detector_half_width : float
+        Half-width of square detector (m)
+    detector_half_height : float
+        Half-height of square detector (m)
+    distance : float
+        Distance between source and detector planes (m)
+    mu : float
+        Linear attenuation coefficient (1/m). Default 0 (no attenuation)
+    n_samples : int
+        Number of Monte Carlo samples
+
+    Returns
+    -------
+    efficiency : float
+        Fraction of emitted particles detected
+    uncertainty : float
+        Statistical uncertainty
+    """
+    # Sample points uniformly in the circular source
+    angles = np.random.uniform(0, 2*np.pi, n_samples)
+    radii = source_radius * np.sqrt(np.random.uniform(0, 1, n_samples))
+    source_x = radii * np.cos(angles)
+    source_y = radii * np.sin(angles)
+
+    # Sample isotropic directions in upper hemisphere
+    cos_theta = np.random.uniform(0, 1, n_samples)
+    phi = np.random.uniform(0, 2*np.pi, n_samples)
+    sin_theta = np.sqrt(1 - cos_theta**2)
+    dx = sin_theta * np.cos(phi)
+    dy = sin_theta * np.sin(phi)
+    dz = cos_theta
+
+    # Parametric line to detector plane z = distance
+    t = distance / dz
+    hit_x = source_x + t * dx
+    hit_y = source_y + t * dy
+
+    # Determine hits on detector
+    hits_detector = (np.abs(hit_x) <= detector_half_width) & (np.abs(hit_y) <= detector_half_height)
+
+    # Apply attenuation factor to hits
+    detected_weights = hits_detector.astype(float) * np.exp(-mu * distance)
+
+    efficiency = np.mean(detected_weights)
+    uncertainty = np.sqrt(np.mean(detected_weights**2) - efficiency**2) / np.sqrt(n_samples)
+
+    return efficiency, uncertainty
+
+
+def efficiency_vs_distance_geo_atten_variable_time(source_radius, detector_half_width, detector_half_height,
+                                                   distances, mu=0.0, base_n_samples=1000000):
+    """
+    Monte Carlo simulation of geometric + attenuation efficiency vs distance
+    with variable number of samples (scaling as d^2 for constant uncertainty).
+
+    Parameters
+    ----------
+    source_radius : float
+        Source radius (m)
+    detector_half_width : float
+        Half-width of detector (m)
+    detector_half_height : float
+        Half-height of detector (m)
+    distances : array
+        Array of distances (m)
+    mu : float
+        Linear attenuation coefficient (1/m)
+    base_n_samples : int
+        Base number of Monte Carlo samples at the closest distance
+
+    Returns
+    -------
+    efficiencies : array
+        Efficiency at each distance
+    uncertainties : array
+        Monte Carlo statistical uncertainty
+    n_samples_used : array
+        Number of Monte Carlo samples used at each distance
+    """
+    efficiencies = []
+    uncertainties = []
+    n_samples_used = []
+
+    reference_distance = distances[0]
+    for d in distances:
+        # Scale number of samples with d^2 to maintain roughly constant uncertainty
+        n_samples = int(base_n_samples * (d / reference_distance)**2)
+        n_samples = max(n_samples, 500_000)  # Ensure minimum
+        eff, unc = monte_carlo_efficiency_geo_atten(source_radius, detector_half_width,
+                                                    detector_half_height, d, mu, n_samples)
+        efficiencies.append(eff)
+        uncertainties.append(unc)
+        n_samples_used.append(n_samples)
+        print(f"Distance: {d:.3f} m, Samples: {n_samples}, Efficiency: {eff:.6f} ± {unc:.6f}")
+
+    return np.array(efficiencies), np.array(uncertainties), np.array(n_samples_used)
+
+
+# Example usage
+if __name__ == "__main__":
+    source_radius = 0.008  # 8 mm
+    detector_half_width = 0.05  # 10 cm detector -> 5 cm half-width
+    detector_half_height = 0.05
+    mu = 0.1  # 1/m, example attenuation
+    distances = np.linspace(0.01, 0.9, 50)[::-1]  # 1 cm to 90 cm
+
+    efficiencies, uncertainties, n_samples_used = efficiency_vs_distance_geo_atten_variable_time(
+        source_radius, detector_half_width, detector_half_height, distances, mu, base_n_samples=10_000_000
+    )
+
+    # Save results
+    np.savez(f"Data/montecarlo_eff_geo_atten_{distances.min()*100:.1f}cm_{distances.max()*100:.1f}cm.npz",
+             distances=distances,
+             efficiencies=efficiencies,
+             uncertainties=uncertainties,
+             n_samples_used=n_samples_used,
+             mu=mu,
+             source_radius=source_radius,
+             detector_half_width=detector_half_width,
+             detector_half_height=detector_half_height)
+
+
+
+
+    
+
+
+        

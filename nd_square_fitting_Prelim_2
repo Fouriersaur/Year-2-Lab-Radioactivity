@@ -147,4 +147,23 @@ plt.title("Combined vs Horizontal Model Fit")
 plt.legend()
 plt.grid(False)
 plt.ylim(0, np.max(scaled_values)*1.2)
+
+# ======= Residual Plot =======
+
+plt.figure(figsize=(8,5))
+
+plt.axhline(0, color='black', linestyle='--')
+
+plt.errorbar(valid_dist, res_comb, yerr=np.ones_like(res_comb),
+             fmt='o', capsize=5, label="Combined model residuals")
+
+plt.errorbar(valid_dist, res_const, yerr=np.ones_like(res_const),
+             fmt='s', capsize=5, label="Constant model residuals")
+
+plt.xlabel("Distance (m)")
+plt.ylabel("Normalised residuals")
+plt.title("Residuals of Fits")
+plt.legend()
+plt.grid(False)
+
 plt.show()

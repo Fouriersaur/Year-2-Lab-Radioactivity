@@ -1,0 +1,26 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ======= Parameters =======
+filename = "/Users/edwinko/Year-2-Lab-Radioactivity/nd^2_100_5_March/5Mar_Sr_014cm_120cycles"  # Replace with your file path
+bins = 20               # Number of bins for histogram
+
+# ======= Load data =======
+# Assumes each line in the file is a count or count rate
+counts = np.loadtxt(filename)
+
+# ======= Plot histogram =======
+plt.figure(figsize=(5,5))
+
+# Histogram showing raw frequency
+plt.hist(counts, bins=bins, color='skyblue', edgecolor='black', alpha=0.7, label='Counts (Frequency)')
+
+# Histogram showing normalized frequency (probability density)
+# plt.hist(counts, bins=bins, density=True, color='orange', alpha=0.5, label='Normalized Frequency (Density)')
+
+plt.xlabel("Count Rate")
+plt.ylabel("Frequency")
+# plt.title("Histogram of Measured Count Rates")
+plt.legend()
+plt.grid(True, linestyle=':', alpha=0.6)
+plt.show()

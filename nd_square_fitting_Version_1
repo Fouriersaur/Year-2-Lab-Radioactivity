@@ -1,0 +1,226 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+from scipy.optimize import curve_fit
+from scipy.stats import chi2
+
+# ======= Folder and files =======
+folder = "/Users/edwinko/Year-2-Lab-Radioactivity/Vary_Seconds_Source_4_Session_5"
+
+files = [
+    "task18_St_1cm_70cycles","task18_St_2cm_70cycles","task18_St_3cm_70cycles",
+    "task18_St_4cm_70cycles","task18_St_5cm_70cycles","task18_St_7cm_90cycles",
+    "task18_St_10cm_130cycles","task18_St_15cm_150cycles","task18_St_25cm_220cycles",
+    "task18_St_35cm_320cycles","task18_St_40cm_340cycles","task18_St_45cm_470cycles",
+    "task18_St_50cm_420cycles","task18_St_55cm_470cycles","task18_St_60cm_490cycles",
+    "task18_St_65cm_530cycles","task18_St_70cm_560cycles","task18_St_75cm_600cycles",
+    "task18_St_80cm_630cycles","task18_St_85cm_300cycles","task18_St_90cm_700cycles",
+]
+
+# distances (m) and recording times (s)
+distances = np.array([1,2,3,4,5,7,10,15,25,35,40,45,50,55,60,65,70,75,80,85,90]) * 0.01
+recording_times = np.array([70,70,70,70,70,90,130,150,220,320,340,470,420,470,490,530,560,600,630,300,700])
+
+# ======= Error function =======
+def calc_error(counts, distance, delta_t):
+    sigma_d = 0.001
+    n = np.sum(counts)
+    return np.sqrt(n*distance**4 + 4*n**2*distance**2*sigma_d**2) / delta_t
+
+# ======= Load data =======
+scaled_values, errors, valid_dist = [], [], []
+
+for f, d, T in zip(files, distances, recording_times):
+
+    path = os.path.join(folder, f)
+
+    if not os.path.exists(path):
+        print(f"Missing file: {f}")
+        continue
+
+    counts = np.loadtxt(path)
+    n = np.sum(counts)
+
+    Q = n * d**2 / T
+
+    scaled_values.append(Q)
+    errors.append(calc_error(counts, d, T))
+    valid_dist.append(d)
+
+scaled_values = np.array(scaled_values)
+errors = np.array(errors)
+valid_dist = np.array(valid_dist)
+
+# ======= Combined geometry + attenuation model =======
+def combined_model(d, n0, dz, x0, y0, mu):
+
+    a, k = 0.01, 0.005
+    d_eff = d + dz
+
+    r_pts, theta_pts = 5, 8
+    r_vals = np.linspace(0, a, r_pts)
+    theta_vals = np.linspace(0, 2*np.pi, theta_pts)
+
+    total_omega, weights_sum = 0, 0
+
+    for r in r_vals:
+
+        weight = r if r > 0 else (a/r_pts)
+
+        for theta in theta_vals:
+
+            xs = r*np.cos(theta) + x0
+            ys = r*np.sin(theta) + y0
+
+            x_lims = [xs - k, xs + k]
+            y_lims = [ys - k, ys + k]
+
+            p_omega = 0
+
+            for i in range(2):
+                for j in range(2):
+
+                    sign = (-1)**(i+j)
+
+                    xi = x_lims[i]
+                    yj = y_lims[j]
+
+                    denom = d_eff * np.sqrt(d_eff**2 + xi**2 + yj**2)
+
+                    p_omega += sign * np.arctan((xi*yj)/denom)
+
+            total_omega += p_omega * weight
+
+        weights_sum += weight
+
+    avg_omega = total_omega / weights_sum
+
+    return n0 * (d**2) * avg_omega * np.exp(-mu * d)
+
+# ======= Fit combined model =======
+initial_guess = [np.max(scaled_values), 0.005, 0.0, 0.0, 0.01]
+
+bounds = (
+    [0,0,-0.02,-0.02,0],
+    [np.inf,0.05,0.02,0.02,1]
+)
+
+popt, pcov = curve_fit(
+    combined_model,
+    valid_dist,
+    scaled_values,
+    sigma=errors,
+    absolute_sigma=True,
+    p0=initial_guess,
+    bounds=bounds,
+    maxfev=20000
+)
+
+perr = np.sqrt(np.diag(pcov))
+
+# ======= Combined model activity =======
+n0 = popt[0]
+n0_err = perr[0]
+
+print("\n===== Combined Geometry Fit =====")
+print(f"Activity n0 = {n0:.2f} ± {n0_err:.2f} counts/s")
+
+# ======= Far-field exponential fit =======
+
+# Detector geometry
+k = 0.005
+detector_area = (2*k)**2
+
+# Select far-field region
+far_mask = valid_dist >= 0.30
+
+far_d = valid_dist[far_mask]
+far_Q = scaled_values[far_mask]
+far_err = errors[far_mask]
+
+def far_model(d, A, mu):
+    return A * np.exp(-mu*d)
+
+popt_far, pcov_far = curve_fit(
+    far_model,
+    far_d,
+    far_Q,
+    sigma=far_err,
+    absolute_sigma=True,
+    p0=[np.mean(far_Q), 0.01]
+)
+
+perr_far = np.sqrt(np.diag(pcov_far))
+
+A_fit, mu_fit = popt_far
+A_err, mu_err = perr_far
+
+# Convert to activity
+activity_far = A_fit / detector_area
+activity_far_err = A_err / detector_area
+
+print("\n===== Far-field Exponential Fit =====")
+print(f"Activity = {activity_far:.2f} ± {activity_far_err:.2f} counts/s")
+print(f"Attenuation mu = {mu_fit:.4f} ± {mu_err:.4f} 1/m")
+
+# ======= Goodness of fit =======
+model_far = far_model(far_d, *popt_far)
+
+chi2_far = np.sum(((far_Q - model_far)/far_err)**2)
+dof_far = len(far_Q) - len(popt_far)
+red_chi2_far = chi2_far / dof_far
+
+print(f"Reduced chi-square (far-field fit) = {red_chi2_far:.2f}")
+
+# ======= Plot fits =======
+d_fit = np.linspace(min(valid_dist), max(valid_dist), 500)
+y_fit = combined_model(d_fit, *popt)
+
+d_far_fit = np.linspace(min(far_d), max(far_d), 300)
+y_far_fit = far_model(d_far_fit, *popt_far)
+
+plt.figure(figsize=(10,6))
+
+plt.errorbar(valid_dist, scaled_values,
+             yerr=errors,
+             fmt='o',
+             capsize=4,
+             label="Data")
+
+plt.plot(d_fit, y_fit,
+         'r-',
+         linewidth=2,
+         label="Combined geometry + attenuation fit")
+
+plt.plot(d_far_fit, y_far_fit,
+         'g--',
+         linewidth=2,
+         label="Far-field exponential fit")
+
+plt.xlabel("Distance (m)")
+plt.ylabel(r"$n d^2 / \Delta t$ (counts·m²/s)")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# ======= Residuals =======
+model_vals = combined_model(valid_dist, *popt)
+
+residuals = (scaled_values - model_vals) / errors
+
+plt.figure(figsize=(10,4))
+
+plt.errorbar(valid_dist,
+             residuals,
+             yerr=np.ones_like(residuals),
+             fmt='o',
+             capsize=4)
+
+plt.axhline(0, color='red', linestyle='--')
+
+plt.xlabel("Distance (m)")
+plt.ylabel("Normalized Residuals")
+plt.title("Residuals of Combined Fit")
+
+plt.grid(True)
+plt.show()
